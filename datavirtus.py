@@ -1,3 +1,4 @@
+import pandas as pd
 import docx
 import faker
 import re
@@ -54,31 +55,31 @@ class RelatorioVirtus:
 
     def __init__(self, modelo_relatorio, lista_tags=None):
         self.modelo_relatorio = modelo_relatorio
-        self.conteudo = self.ler_arquivo()
+        self.doc = docx.Document(modelo_relatorio)
+        self.texto = self.extrai_texto()
         if lista_tags is not None:
             self.mapa_tags = self.carregar_tags(lista_tags)
         else:
-            self.extrair_tags()  # Extrai as tags do texto do arquivo docx
+            self.mapa_tags = self.extrair_tags()  # Extrai as tags do texto do arquivo docx
+        self.ordenar_tags()
 
-    def ler_arquivo(self):
-        doc = docx.Document(self.modelo_relatorio)
-        conteudo = []
-        for paragrafo in doc.paragraphs:
-            conteudo.append(paragrafo.text)
-        return conteudo
+    def extrai_texto(self):
+        texto = []
+        for paragrafo in self.doc.paragraphs:
+            texto.append(paragrafo.text)
+        return texto
 
     def extrair_tags(self):
         tags = set()
-        for paragraph in self.conteudo:
+        for paragraph in self.texto:
             tags.update(re.findall(r'(\|.*?\|)', paragraph))
-        self.mapa_tags = {tag: None for tag in tags}
-        self.ordenar_tags()
+        mapa_tags = {tag: None for tag in tags}
+        return mapa_tags
 
     def ordenar_tags(self):
         self.mapa_tags = dict(sorted(self.mapa_tags.items(), key=lambda x: x[0]))
 
     def exportar_tags(self, arquivo_saida=None):
-
         if arquivo_saida is None:
             arquivo_saida = 'mapa_tags.json'
 
@@ -92,29 +93,57 @@ class RelatorioVirtus:
         return self.mapa_tags
 
     def substituir_tags(self):
-        for i, paragraph in enumerate(self.conteudo):
-            for tag, valor in self.mapa_tags.items():
-                if valor is not None:
-                    self.conteudo[i] = self.conteudo[i].replace(tag, valor)
-        return self.conteudo
+        if self.mapa_tags is None:
+            raise ValueError('Mapa de tags não foi carregado')
 
-    def salvar_relatorio(self, arquivo_saida='relatorio.docx'):
+        for tag, valor in self.mapa_tags.items():
+            if valor is not None:
+                if tag.startswith('|GRÁFICO'):
+                    self.substituir_grafico(tag, valor)
+                elif tag.startswith('|TABELA'):
+                    self.substituir_tabela(tag, valor)
+                else:
+                    self.substituir_texto(tag, valor)
 
-        doc = docx.Document()
-        for paragraph in self.conteudo:
-            doc.add_paragraph(paragraph)
-        doc.save(arquivo_saida)
-        return arquivo_saida
+    def substituir_texto(self, tag, valor):
+        for paragraph in self.doc.paragraphs:
+            if tag in paragraph.text:
+                for run in paragraph.runs:
+                    if tag in run.text:
+                        run.text = run.text.replace(tag, valor)
 
-    def substituir_grafico(self, imagem_grafico, tag_grafico):
-        doc = docx.Document()
-        for paragraph in self.conteudo:
-            if tag_grafico in paragraph:
-                paragraph = paragraph.replace(tag_grafico, '')
-                doc.add_paragraph(paragraph)
-                doc.add_picture(imagem_grafico, width=Inches(6.0))  # Adjust the width as needed
-            else:
-                doc.add_paragraph(paragraph)
-        self.conteudo = [p.text for p in doc.paragraphs]
-        doc.save('relatorio_final.docx')
-        return self.conteudo
+    def substituir_grafico(self, tag_grafico, imagem_grafico):
+        for i, paragraph in enumerate(self.doc.paragraphs):
+            if tag_grafico in paragraph.text:
+                paragraph.text = paragraph.text.replace(tag_grafico, '')
+                run = paragraph.add_run()
+                run.add_picture(imagem_grafico, width=Inches(6.0))  # Adjust the width as needed
+
+    def substituir_tabela(self, tag_tabela, file_path):
+        dataframe = pd.read_csv(file_path, sep=';', encoding='windows-1252')
+        for paragraph in self.doc.paragraphs:
+            if tag_tabela in paragraph.text:
+                # Substitui a tag pela string vazia
+                paragraph.text = paragraph.text.replace(tag_tabela, '')
+
+                # Cria a tabela
+                table = self.doc.add_table(rows=dataframe.shape[0] + 1, cols=dataframe.shape[1])
+                table.alignment = 1  # Centraliza a tabela no documento (opcional)
+
+                # Preenche o cabeçalho
+                for j, col in enumerate(dataframe.columns):
+                    table.cell(0, j).text = col
+
+                # Preenche as células da tabela
+                for i, row in dataframe.iterrows():
+                    for j, col in enumerate(dataframe.columns):
+                        table.cell(i + 1, j).text = str(row[col])
+
+                # Move a tabela para o local correto
+                table_element = table._element
+                paragraph._element.addnext(table_element)
+                break  # Sai do loop após inserir a tabela
+
+    def gerar_relatorio(self, arquivo_saida='relatorio.docx'):
+        self.substituir_tags()
+        self.doc.save(arquivo_saida)
