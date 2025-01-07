@@ -55,16 +55,16 @@ class RelatorioVirtus:
 
     def __init__(self, modelo_relatorio, lista_tags=None):
         self.modelo_relatorio = modelo_relatorio
+        self.nome_modelo = modelo_relatorio.split('.')[0]
         self.doc = docx.Document(modelo_relatorio)
         self.texto = self.extrai_texto()
         if lista_tags is not None:
             self.mapa_tags = self.carregar_tags(lista_tags)
         else:
             self.mapa_tags = self.extrair_tags()  # Extrai as tags do texto do arquivo docx
-            self.exportar_tags()
-            
-        self.ordenar_tags()
-        
+            self.exportar_tags(f'mapa_tags_{self.nome_modelo}.json')
+
+        self.ordenar_tags()        
 
     def extrai_texto(self):
         texto = []
@@ -90,18 +90,21 @@ class RelatorioVirtus:
             json.dump(self.mapa_tags, f, ensure_ascii=False, indent=4)
 
     def carregar_tags(self, arquivo_tags='mapa_tags.json'):
-        with open(arquivo_tags, 'r', encoding='utf-8') as f:
-            self.mapa_tags = json.load(f)
-        self.ordenar_tags()
-        return self.mapa_tags
+        try:
+            with open(arquivo_tags, 'r', encoding='utf-8') as f:
+                self.mapa_tags = json.load(f)
+            self.ordenar_tags()
+            return self.mapa_tags
+        except FileNotFoundError:
+            print("Arquivo de tags não encontrado.")
 
     def substituir_tags(self):
         if self.mapa_tags is None:
-            raise ValueError('Mapa de tags não foi carregado')
+            raise ValueError('Mapa de tags não foi carregado.')
 
         for tag, valor in self.mapa_tags.items():
             if valor is not None:
-                if tag.startswith('|GRÁFICO'):
+                if tag.startswith('|IMAGEM'):
                     self.substituir_grafico(tag, valor)
                 elif tag.startswith('|TABELA'):
                     self.substituir_tabela(tag, valor)
@@ -120,7 +123,7 @@ class RelatorioVirtus:
             if tag_grafico in paragraph.text:
                 paragraph.text = paragraph.text.replace(tag_grafico, '')
                 run = paragraph.add_run()
-                run.add_picture(imagem_grafico, width=Inches(6.0))  # Adjust the width as needed
+                run.add_picture(imagem_grafico, width=Inches(6.0))
 
     def substituir_tabela(self, tag_tabela, file_path):
         dataframe = pd.read_csv(file_path, sep=';', encoding='windows-1252')
