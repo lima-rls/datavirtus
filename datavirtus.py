@@ -62,6 +62,7 @@ class RelatorioVirtus:
         else:
             self.mapa_tags = self.extrair_tags()  # Extrai as tags do texto do arquivo docx
         self.ordenar_tags()
+        self.exportar_tags()
 
     def extrai_texto(self):
         texto = []
