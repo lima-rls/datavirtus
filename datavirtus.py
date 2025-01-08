@@ -1,3 +1,5 @@
+import os.path
+
 import pandas as pd
 import docx
 import faker
@@ -53,18 +55,27 @@ def pseudoanonimizar(dataframe, coluna, tipo, seed=None):
 
 class RelatorioVirtus:
 
-    def __init__(self, modelo_relatorio, lista_tags=None):
+    def __init__(self, modelo_relatorio, arquivo_tags=None):
         self.modelo_relatorio = modelo_relatorio
         self.nome_modelo = modelo_relatorio.split('.')[0]
         self.doc = docx.Document(modelo_relatorio)
-        self.texto = self.extrai_texto()
-        if lista_tags is not None:
-            self.mapa_tags = self.carregar_tags(lista_tags)
-        else:
-            self.mapa_tags = self.extrair_tags()  # Extrai as tags do texto do arquivo docx
-            self.exportar_tags(f'mapa_tags_{self.nome_modelo}.json')
 
-        self.ordenar_tags()        
+        if arquivo_tags is not None:
+            self.mapa_tags = self.carregar_tags(arquivo_tags)
+        else:
+            self.mapa_tags = None
+            self.arquivo_tags = self.nome_modelo + '_tags.json'
+
+
+
+    def carregar_doc(self):
+        try:
+            return docx.Document(self.modelo_relatorio)
+        except FileNotFoundError:
+            raise FileNotFoundError("Arquivo de modelo de relatório não encontrado.")
+        except Exception as e:
+            raise Exception(f"Erro ao carregar o arquivo de modelo de relatório: {e}")
+
 
     def extrai_texto(self):
         texto = []
@@ -74,33 +85,47 @@ class RelatorioVirtus:
 
     def extrair_tags(self):
         tags = set()
-        for paragraph in self.texto:
+        texto = self.extrai_texto()
+        for paragraph in texto:
             tags.update(re.findall(r'(\|.*?\|)', paragraph))
         mapa_tags = {tag: None for tag in tags}
         return mapa_tags
 
-    def ordenar_tags(self):
-        self.mapa_tags = dict(sorted(self.mapa_tags.items(), key=lambda x: x[0]))
+    @staticmethod
+    def ordenar_dict(dicionario):
+        return dict(sorted(dicionario.items(), key=lambda x: x[0]))
 
     def exportar_tags(self, arquivo_saida=None):
         if arquivo_saida is None:
-            arquivo_saida = 'mapa_tags.json'
+            arquivo_saida = self.nome_modelo + '_tags.json'
+
+        if os.path.exists(arquivo_saida):
+            raise FileExistsError('Arquivo de tags já existe. Carregue o arquivo existente ou altere o nome desejado.')
+
+        mapa_tags = self.extrair_tags()
 
         with open(arquivo_saida, 'w', encoding='utf-8') as f:
-            json.dump(self.mapa_tags, f, ensure_ascii=False, indent=4)
+            json.dump(self.ordenar_dict(mapa_tags), f, ensure_ascii=False, indent=4)
+            print(f'Arquivo de tags {arquivo_saida} exportado com sucesso.')
 
-    def carregar_tags(self, arquivo_tags='mapa_tags.json'):
+
+    def carregar_tags(self, arquivo_tags):
         try:
             with open(arquivo_tags, 'r', encoding='utf-8') as f:
                 self.mapa_tags = json.load(f)
-            self.ordenar_tags()
+                self.arquivo_tags = arquivo_tags
+                print(f'Arquivo de tags carregado com sucesso.')
             return self.mapa_tags
         except FileNotFoundError:
-            print("Arquivo de tags não encontrado.")
+            raise FileNotFoundError(f"Arquivo de tags '{arquivo_tags}' não encontrado.")
+        except json.JSONDecodeError as e:
+            raise Exception(f"Erro ao carregar o arquivo de tags '{arquivo_tags}': {e}")
+        except Exception as e:
+            raise Exception(f"Erro ao carregar o arquivo de tags '{arquivo_tags}': {e}")
 
     def substituir_tags(self):
         if self.mapa_tags is None:
-            raise ValueError('Mapa de tags não foi carregado.')
+            raise ValueError('Mapa de tags não foi carregado. Carregue um arquivo de tags com carregar_tags().')
 
         for tag, valor in self.mapa_tags.items():
             if valor is not None:
@@ -118,19 +143,24 @@ class RelatorioVirtus:
                     if tag in run.text:
                         run.text = run.text.replace(tag, valor)
 
-    def substituir_grafico(self, tag_grafico, imagem_grafico):
+    def substituir_grafico(self, tag, valor):
         for i, paragraph in enumerate(self.doc.paragraphs):
-            if tag_grafico in paragraph.text:
-                paragraph.text = paragraph.text.replace(tag_grafico, '')
+            if tag in paragraph.text:
+                paragraph.text = paragraph.text.replace(tag, '')
                 run = paragraph.add_run()
-                run.add_picture(imagem_grafico, width=Inches(6.0))
+                run.add_picture(valor, width=Inches(6.0))
 
-    def substituir_tabela(self, tag_tabela, file_path):
-        dataframe = pd.read_csv(file_path, sep=';', encoding='windows-1252')
+    def substituir_tabela(self, tag, valor):
+        try:
+            dataframe = pd.read_csv(valor, sep=';', encoding='windows-1252')
+        except Exception as e:
+            raise f"Erro ao carregar o arquivo de dados: {e})"
+
+
         for paragraph in self.doc.paragraphs:
-            if tag_tabela in paragraph.text:
+            if tag in paragraph.text:
                 # Substitui a tag pela string vazia
-                paragraph.text = paragraph.text.replace(tag_tabela, '')
+                paragraph.text = paragraph.text.replace(tag, '')
 
                 # Cria a tabela
                 table = self.doc.add_table(rows=dataframe.shape[0] + 1, cols=dataframe.shape[1])
@@ -150,6 +180,6 @@ class RelatorioVirtus:
                 paragraph._element.addnext(table_element)
                 break  # Sai do loop após inserir a tabela
 
-    def gerar_relatorio(self, arquivo_saida='relatorio.docx'):
+    def gerar_relatorio(self, arquivo_saida):
         self.substituir_tags()
         self.doc.save(arquivo_saida)
