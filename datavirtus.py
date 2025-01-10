@@ -107,6 +107,7 @@ class RelatorioVirtus:
         with open(arquivo_saida, 'w', encoding='utf-8') as f:
             json.dump(self.ordenar_dict(mapa_tags), f, ensure_ascii=False, indent=4)
             print(f'Arquivo de tags {arquivo_saida} exportado com sucesso.')
+            print(f'Use |IMAGEM...| para inserir um gráfico e |TABELA...| para inserir uma tabela. Demais tags |...| são para texto.')
 
 
     def carregar_tags(self, arquivo_tags):
@@ -152,9 +153,9 @@ class RelatorioVirtus:
 
     def substituir_tabela(self, tag, valor):
         try:
-            dataframe = pd.read_csv(valor, sep=';', encoding='windows-1252')
+            dataframe = pd.read_csv(valor, sep=',', encoding='utf-8')
         except Exception as e:
-            raise f"Erro ao carregar o arquivo de dados: {e})"
+            raise f"Erro ao carregar o arquivo de dados: {e},  *dataframe = pd.read_csv(valor, sep=',', encoding='utf-8'))"
 
 
         for paragraph in self.doc.paragraphs:
